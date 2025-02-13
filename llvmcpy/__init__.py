@@ -52,8 +52,28 @@ class LLVMCPy:
         elif sys.platform == "darwin":
             extension = ".dylib"
         else:
-            extension = ".so*"
-        libraries = list(Path(self._run_llvm_config(["--libdir"])).glob(f"libLLVM*{extension}"))
+            extension = ".so"
+
+        libraries = []
+        libdir_path = Path(self._run_llvm_config(["--libdir"]))
+        if self._run_llvm_config(["--shared-mode"]) == "shared":
+            # The names returned by `libnames` are `.so`s that can be used
+            for libname in self._run_llvm_config(["--libnames"]).split(" "):
+                lib_path = libdir_path / libname
+                if extension in lib_path.suffixes:
+                    libraries.append(lib_path)
+        else:
+            # Fallback solution, use glob. This is done because sometimes
+            # llvm-config says it's static but also has shared libraries
+            for lib_path in libdir_path.glob(f"libLLVM*{extension}*"):
+                if lib_path.is_file() and not lib_path.is_symlink():
+                    libraries.append(lib_path)
+
+        if len(libraries) == 0:
+            raise ValueError(
+                "No valid LLVM libraries found, LLVM must be built with BUILD_SHARED_LIBS"
+            )
+
         include_dir = Path(self._run_llvm_config(["--includedir"]))
         generator = Generator(cpp, libraries, include_dir)
         generator.generate_wrapper(path)
